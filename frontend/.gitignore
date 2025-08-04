@@ -1,0 +1,12 @@
+# frontend/.gitignore
+
+node_modules/
+dist/
+.env
+.vite/
+.next/
+out/
+.cache/
+npm-debug.log
+yarn-error.log
+.DS_Store

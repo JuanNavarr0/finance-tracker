@@ -1,0 +1,323 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-gray-300 dark:bg-gray-700 rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-gray-400 dark:bg-gray-600;
+  }
+
+  /* Firefox scrollbar */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: theme('colors.gray.700') transparent;
+  }
+
+  /* Selection color */
+  ::selection {
+    @apply bg-primary-500/30 text-primary-100;
+  }
+
+  /* Focus styles */
+  *:focus {
+    @apply outline-none;
+  }
+
+  /* Form inputs base styles */
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="number"],
+  input[type="date"],
+  select,
+  textarea {
+    @apply bg-transparent;
+  }
+
+  /* Remove number input arrows */
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  input[type="number"] {
+    -moz-appearance: textfield;
+  }
+
+  /* Date picker styles */
+  input[type="date"]::-webkit-calendar-picker-indicator {
+    @apply dark:invert dark:brightness-75 cursor-pointer;
+  }
+}
+
+@layer components {
+  /* Glass effect */
+  .glass {
+    @apply backdrop-blur-xl bg-white/5 dark:bg-white/5;
+  }
+
+  .glass-border {
+    @apply border border-white/10 dark:border-white/10;
+  }
+
+  /* Card styles */
+  .card {
+    @apply glass glass-border rounded-2xl p-6 transition-all duration-300;
+  }
+
+  .card-hover {
+    @apply hover:bg-white/10 dark:hover:bg-white/10 hover:shadow-lg hover:shadow-primary-500/10;
+  }
+
+  /* Button base */
+  .btn {
+    @apply px-4 py-2 rounded-lg font-medium transition-all duration-200 
+           disabled:opacity-50 disabled:cursor-not-allowed
+           focus:ring-2 focus:ring-offset-2 focus:ring-offset-transparent;
+  }
+
+  .btn-primary {
+    @apply btn bg-primary-500 text-white hover:bg-primary-600 
+           focus:ring-primary-500 active:scale-95;
+  }
+
+  .btn-secondary {
+    @apply btn bg-gray-200 dark:bg-gray-800 text-gray-900 dark:text-gray-100
+           hover:bg-gray-300 dark:hover:bg-gray-700 focus:ring-gray-500;
+  }
+
+  .btn-ghost {
+    @apply btn bg-transparent hover:bg-gray-100 dark:hover:bg-gray-800
+           focus:ring-gray-500;
+  }
+
+  .btn-danger {
+    @apply btn bg-red-500 text-white hover:bg-red-600 
+           focus:ring-red-500;
+  }
+
+  /* Input styles */
+  .input {
+    @apply w-full px-4 py-2 rounded-lg glass glass-border
+           focus:ring-2 focus:ring-primary-500 focus:border-transparent
+           placeholder-gray-400 dark:placeholder-gray-500 transition-all duration-200;
+  }
+
+  .input-error {
+    @apply ring-2 ring-red-500 border-red-500;
+  }
+
+  /* Label styles */
+  .label {
+    @apply block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1;
+  }
+
+  /* Stats card gradient */
+  .stats-gradient {
+    @apply bg-gradient-to-br from-primary-500/20 to-primary-600/20;
+  }
+
+  .stats-gradient-green {
+    @apply bg-gradient-to-br from-green-500/20 to-green-600/20;
+  }
+
+  .stats-gradient-red {
+    @apply bg-gradient-to-br from-red-500/20 to-red-600/20;
+  }
+
+  .stats-gradient-yellow {
+    @apply bg-gradient-to-br from-yellow-500/20 to-yellow-600/20;
+  }
+
+  /* Glow effects */
+  .glow {
+    @apply relative overflow-hidden;
+  }
+
+  .glow::before {
+    content: '';
+    @apply absolute inset-0 bg-gradient-glow opacity-0 
+           transition-opacity duration-300 -translate-x-full;
+  }
+
+  .glow:hover::before {
+    @apply opacity-100 animate-shimmer;
+  }
+
+  /* Loading skeleton */
+  .skeleton {
+    @apply relative overflow-hidden bg-gray-200 dark:bg-gray-800 rounded;
+  }
+
+  .skeleton::after {
+    content: '';
+    @apply absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent
+           -translate-x-full animate-shimmer;
+  }
+
+  /* Chart container */
+  .chart-container {
+    @apply w-full h-[300px] md:h-[400px];
+  }
+
+  /* Sidebar link */
+  .sidebar-link {
+    @apply flex items-center gap-3 px-4 py-3 rounded-lg
+           text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100
+           hover:bg-gray-100 dark:hover:bg-gray-800 transition-all duration-200;
+  }
+
+  .sidebar-link-active {
+    @apply bg-primary-100 dark:bg-primary-900/20 text-primary-600 dark:text-primary-400
+           hover:bg-primary-100 dark:hover:bg-primary-900/20;
+  }
+
+  /* Modal backdrop */
+  .modal-backdrop {
+    @apply fixed inset-0 bg-black/50 backdrop-blur-sm z-40;
+  }
+
+  /* Modal content */
+  .modal {
+    @apply fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 
+           w-full max-w-lg glass glass-border rounded-2xl p-6 z-50
+           shadow-2xl shadow-black/50;
+  }
+}
+
+@layer utilities {
+  /* Text gradient */
+  .text-gradient {
+    @apply bg-gradient-to-r from-primary-400 to-primary-600 bg-clip-text text-transparent;
+  }
+
+  /* Animations */
+  .animate-in {
+    animation: fadeIn 0.5s ease-in-out;
+  }
+
+  .animate-slide-up {
+    animation: slideUp 0.3s ease-out;
+  }
+
+  .animate-slide-down {
+    animation: slideDown 0.3s ease-out;
+  }
+
+  /* Transitions */
+  .transition-height {
+    transition-property: height;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-duration: 300ms;
+  }
+
+  /* Grid auto-fill */
+  .grid-auto-fill {
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  }
+
+  /* Hide scrollbar but keep functionality */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* React Datepicker custom styles */
+.react-datepicker {
+  @apply !bg-dark-card !border-dark-border !font-sans;
+}
+
+.react-datepicker__header {
+  @apply !bg-dark-hover !border-dark-border;
+}
+
+.react-datepicker__current-month,
+.react-datepicker__day-name {
+  @apply !text-gray-100;
+}
+
+.react-datepicker__day {
+  @apply !text-gray-300 hover:!bg-primary-500 hover:!text-white;
+}
+
+.react-datepicker__day--selected {
+  @apply !bg-primary-500 !text-white;
+}
+
+.react-datepicker__day--disabled {
+  @apply !text-gray-600;
+}
+
+/* React Select custom styles */
+.select-container .select__control {
+  @apply !bg-transparent !border-dark-border !shadow-none;
+}
+
+.select-container .select__control--is-focused {
+  @apply !border-primary-500 !ring-2 !ring-primary-500;
+}
+
+.select-container .select__menu {
+  @apply !bg-dark-card !border-dark-border;
+}
+
+.select-container .select__option {
+  @apply !text-gray-300;
+}
+
+.select-container .select__option--is-selected {
+  @apply !bg-primary-500;
+}
+
+.select-container .select__option--is-focused {
+  @apply !bg-dark-hover;
+}
+
+.select-container .select__single-value {
+  @apply !text-gray-100;
+}
+
+.select-container .select__placeholder {
+  @apply !text-gray-500;
+}
+
+.select-container .select__indicator-separator {
+  @apply !bg-dark-border;
+}
+
+/* Recharts custom styles */
+.recharts-tooltip-wrapper {
+  @apply !outline-none;
+}
+
+.recharts-default-tooltip {
+  @apply !bg-dark-card !border-dark-border !rounded-lg !shadow-xl;
+}
+
+.recharts-tooltip-label {
+  @apply !text-gray-300;
+}
+
+.recharts-tooltip-item {
+  @apply !text-gray-100;
+}
