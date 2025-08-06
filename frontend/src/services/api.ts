@@ -54,6 +54,3 @@ api.interceptors.response.use(
 )
 
 export default api
-
-// Export endpoints
-export * from './endpoints'
