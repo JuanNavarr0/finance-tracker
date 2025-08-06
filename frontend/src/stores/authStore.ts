@@ -1,21 +1,19 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import api, { endpoints } from '@services/api'
-import { User, UserLogin, UserCreate, Token } from '@types'
+import { User, UserLogin, Token } from '@types'
+import authService from '@services/auth.service'
+import { toast } from 'react-hot-toast'
 
 interface AuthState {
   user: User | null
   token: string | null
   isAuthenticated: boolean
   isLoading: boolean
-  
-  // Actions
   login: (credentials: UserLogin) => Promise<void>
-  register: (userData: UserCreate) => Promise<void>
+  register: (userData: any) => Promise<void>
   logout: () => void
-  fetchUser: () => Promise<void>
-  updateUser: (userData: Partial<User>) => void
-  initialize: () => void
+  updateUser: (user: User) => void
+  checkAuth: () => Promise<void>
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -25,88 +23,75 @@ export const useAuthStore = create<AuthState>()(
       token: null,
       isAuthenticated: false,
       isLoading: false,
-
+      
       login: async (credentials: UserLogin) => {
         set({ isLoading: true })
         try {
-          // Login with form data (OAuth2 expects form-urlencoded)
-          const formData = new FormData()
-          formData.append('username', credentials.username)
-          formData.append('password', credentials.password)
+          const tokenData = await authService.login(credentials)
+          localStorage.setItem('token', tokenData.access_token)
           
-          const { data } = await api.post<Token>(endpoints.login, formData, {
-            headers: { 'Content-Type': 'multipart/form-data' }
-          })
+          // Get user data
+          const user = await authService.getCurrentUser()
           
           set({ 
-            token: data.access_token,
-            isAuthenticated: true
+            user, 
+            token: tokenData.access_token, 
+            isAuthenticated: true,
+            isLoading: false 
           })
-          
-          // Fetch user data
-          await get().fetchUser()
-        } finally {
-          set({ isLoading: false })
-        }
-      },
-
-      register: async (userData: UserCreate) => {
-        set({ isLoading: true })
-        try {
-          await api.post(endpoints.register, userData)
-          
-          // Auto login after registration
-          await get().login({
-            username: userData.username,
-            password: userData.password
-          })
-        } finally {
-          set({ isLoading: false })
-        }
-      },
-
-      logout: () => {
-        set({ 
-          user: null, 
-          token: null, 
-          isAuthenticated: false 
-        })
-      },
-
-      fetchUser: async () => {
-        try {
-          const { data } = await api.get<User>(endpoints.me)
-          set({ user: data })
         } catch (error) {
-          // If fetching user fails, logout
-          get().logout()
+          set({ isLoading: false })
           throw error
         }
       },
-
-      updateUser: (userData: Partial<User>) => {
-        set((state) => ({
-          user: state.user ? { ...state.user, ...userData } : null
-        }))
+      
+      register: async (userData: any) => {
+        set({ isLoading: true })
+        try {
+          const user = await authService.register(userData)
+          
+          // Auto login after register
+          const credentials = {
+            username: userData.username,
+            password: userData.password
+          }
+          await get().login(credentials)
+        } catch (error) {
+          set({ isLoading: false })
+          throw error
+        }
       },
-
-      initialize: () => {
-        const { token, fetchUser } = get()
-        if (token) {
-          // Verify token is still valid by fetching user
-          fetchUser().catch(() => {
-            // Token is invalid, logout
-            get().logout()
-          })
+      
+      logout: () => {
+        localStorage.removeItem('token')
+        set({ user: null, token: null, isAuthenticated: false })
+      },
+      
+      updateUser: (user: User) => {
+        set({ user })
+      },
+      
+      checkAuth: async () => {
+        const token = localStorage.getItem('token')
+        if (!token) {
+          set({ isAuthenticated: false, user: null })
+          return
+        }
+        
+        try {
+          const user = await authService.getCurrentUser()
+          set({ user, isAuthenticated: true, token })
+        } catch (error) {
+          localStorage.removeItem('token')
+          set({ isAuthenticated: false, user: null, token: null })
         }
       }
     }),
     {
       name: 'auth-storage',
       partialize: (state) => ({ 
-        token: state.token,
-        isAuthenticated: state.isAuthenticated
-      })
+        token: state.token
+      }),
     }
   )
 )
