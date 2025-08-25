@@ -15,16 +15,70 @@ from app.schemas.investment import (
     InvestmentWithMarketData
 )
 from app.utils.auth import get_current_active_user
-from app.utils.market_data import (
-    MarketDataService,
+from app.services.market_data import (
+    get_current_price,
+    get_quote,
+    search_symbol,
+    market_data_service,
     update_investment_prices,
     calculate_portfolio_metrics
 )
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/investments",
     tags=["Investments"]
 )
+
+def update_investment_prices(investments: List[Investment]) -> List[Investment]:
+    """
+    Update prices for a list of investments using Alpha Vantage
+    """
+    for investment in investments:
+        if investment.status == InvestmentStatus.ACTIVE:
+            try:
+                # Get current price from Alpha Vantage
+                current_price = get_current_price(investment.symbol)
+                
+                if current_price:
+                    investment.current_price = current_price
+                    investment.last_price_update = datetime.now()
+                    
+                    # Update calculated fields
+                    investment.current_value = current_price * investment.quantity
+                    investment.profit_loss = investment.current_value - investment.total_invested
+                    investment.profit_loss_percentage = (
+                        (investment.profit_loss / investment.total_invested * 100) 
+                        if investment.total_invested > 0 else 0
+                    )
+                    logger.info(f"Updated price for {investment.symbol}: ${current_price}")
+                else:
+                    logger.warning(f"Could not get price for {investment.symbol}")
+                    
+            except Exception as e:
+                logger.error(f"Error updating price for {investment.symbol}: {e}")
+                # Keep last known price if update fails
+                pass
+    
+    return investments
+
+def calculate_portfolio_metrics(investments: List[Investment]) -> dict:
+    """
+    Calculate portfolio performance metrics
+    """
+    total_invested = sum(inv.total_invested or 0 for inv in investments)
+    current_value = sum(inv.current_value or 0 for inv in investments)
+    profit_loss = current_value - total_invested
+    profit_loss_percentage = (profit_loss / total_invested * 100) if total_invested > 0 else 0
+    
+    return {
+        'total_invested': total_invested,
+        'current_value': current_value,
+        'profit_loss': profit_loss,
+        'profit_loss_percentage': profit_loss_percentage
+    }
 
 @router.get("/", response_model=List[InvestmentWithMarketData])
 def get_investments(
@@ -69,14 +123,14 @@ def get_investments(
             for column in inv.__table__.columns
         }
         
-        # Add real-time market data if available
+        # Add real-time market data if available (from Alpha Vantage)
         if inv.current_price and inv.last_price_update:
-            market_data = MarketDataService.get_stock_price(inv.symbol)
-            if market_data:
-                inv_dict['real_time_price'] = market_data['current_price']
-                inv_dict['day_change'] = market_data.get('change')
-                inv_dict['day_change_percentage'] = market_data.get('change_percent')
-                inv_dict['market_status'] = 'open'  # Simplified
+            quote_data = get_quote(inv.symbol)
+            if quote_data:
+                inv_dict['real_time_price'] = quote_data.get('price', inv.current_price)
+                inv_dict['day_change'] = quote_data.get('change')
+                inv_dict['day_change_percentage'] = quote_data.get('change_percent')
+                inv_dict['market_status'] = 'open' if quote_data else 'closed'
         
         result.append(InvestmentWithMarketData(**inv_dict))
     
@@ -213,13 +267,13 @@ def get_investment(
         for column in investment.__table__.columns
     }
     
-    # Add real-time market data
-    market_data = MarketDataService.get_stock_price(investment.symbol)
-    if market_data:
-        inv_dict['real_time_price'] = market_data['current_price']
-        inv_dict['day_change'] = market_data.get('change')
-        inv_dict['day_change_percentage'] = market_data.get('change_percent')
-        inv_dict['market_status'] = 'open'
+    # Add real-time market data from Alpha Vantage
+    quote_data = get_quote(investment.symbol)
+    if quote_data:
+        inv_dict['real_time_price'] = quote_data.get('price')
+        inv_dict['day_change'] = quote_data.get('change')
+        inv_dict['day_change_percentage'] = quote_data.get('change_percent')
+        inv_dict['market_status'] = 'open' if quote_data else 'closed'
     
     return InvestmentWithMarketData(**inv_dict)
 
@@ -233,13 +287,9 @@ def create_investment(
     """
     Create new investment entry
     """
-    # Validate symbol exists
-    if investment_data.investment_type == InvestmentType.CRYPTO:
-        symbol_to_check = f"{investment_data.symbol}-USD"
-    else:
-        symbol_to_check = investment_data.symbol
-    
-    if not MarketDataService.validate_symbol(symbol_to_check):
+    # Validate symbol exists using Alpha Vantage
+    quote_data = get_quote(investment_data.symbol)
+    if not quote_data:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Símbolo '{investment_data.symbol}' no válido o no encontrado"
@@ -258,17 +308,20 @@ def create_investment(
         db_investment.purchase_fees
     )
     
+    # Set current price from quote
+    if quote_data:
+        db_investment.current_price = quote_data.get('price')
+        db_investment.last_price_update = datetime.now()
+        db_investment.current_value = db_investment.quantity * db_investment.current_price
+        db_investment.profit_loss = db_investment.current_value - db_investment.total_invested
+        db_investment.profit_loss_percentage = (
+            (db_investment.profit_loss / db_investment.total_invested * 100)
+            if db_investment.total_invested > 0 else 0
+        )
+    
     db.add(db_investment)
     db.commit()
     db.refresh(db_investment)
-    
-    # Update price in background
-    background_tasks.add_task(
-        update_single_investment_price,
-        db_investment.id,
-        db_investment.symbol,
-        db_investment.investment_type
-    )
     
     return db_investment
 
@@ -298,6 +351,21 @@ def update_investment(
     
     for field, value in update_data.items():
         setattr(investment, field, value)
+    
+    # Recalculate metrics if quantity or price changed
+    if 'quantity' in update_data or 'purchase_price' in update_data:
+        investment.total_invested = (
+            investment.quantity * investment.purchase_price + 
+            investment.purchase_fees
+        )
+        
+        if investment.current_price:
+            investment.current_value = investment.quantity * investment.current_price
+            investment.profit_loss = investment.current_value - investment.total_invested
+            investment.profit_loss_percentage = (
+                (investment.profit_loss / investment.total_invested * 100)
+                if investment.total_invested > 0 else 0
+            )
     
     db.commit()
     db.refresh(investment)
@@ -389,43 +457,56 @@ def delete_investment(
 @router.get("/market/search")
 def search_market_symbols(
     query: str = Query(..., min_length=1),
-    investment_type: InvestmentType = Query(InvestmentType.STOCK),
     current_user: User = Depends(get_current_active_user)
 ):
     """
-    Search for valid market symbols (for autocomplete)
+    Search for valid market symbols using Alpha Vantage
     """
-    # This is a simplified version - in production you'd want a proper symbol search API
-    # For now, just validate if the symbol exists
-    if investment_type == InvestmentType.CRYPTO:
-        symbol = f"{query.upper()}-USD"
-    else:
-        symbol = query.upper()
-    
-    is_valid = MarketDataService.validate_symbol(symbol)
-    
-    if is_valid:
-        price_data = MarketDataService.get_stock_price(symbol)
-        if price_data:
-            return [{
-                'symbol': query.upper(),
-                'name': price_data.get('name', query.upper()),
-                'current_price': price_data.get('current_price'),
-                'currency': price_data.get('currency', 'USD')
-            }]
-    
-    return []
+    try:
+        # Search using Alpha Vantage
+        results = search_symbol(query)
+        
+        if not results:
+            # If no results, try getting a direct quote
+            quote = get_quote(query.upper())
+            if quote:
+                return [{
+                    'symbol': query.upper(),
+                    'name': query.upper(),
+                    'current_price': quote.get('price'),
+                    'currency': 'USD'
+                }]
+        
+        # Format results for frontend
+        formatted_results = []
+        for result in results[:5]:  # Limit to 5 results
+            # Get current price for each result
+            price = get_current_price(result['symbol'])
+            formatted_results.append({
+                'symbol': result['symbol'],
+                'name': result['name'],
+                'type': result.get('type', 'Stock'),
+                'region': result.get('region', 'US'),
+                'currency': result.get('currency', 'USD'),
+                'current_price': price
+            })
+        
+        return formatted_results
+        
+    except Exception as e:
+        logger.error(f"Error searching symbols: {e}")
+        return []
 
 @router.get("/{investment_id}/history")
 def get_investment_history(
     investment_id: int,
     period: str = Query("1mo", regex="^(1d|5d|1mo|3mo|6mo|1y|2y|5y|max)$"),
-    interval: str = Query("1d", regex="^(1d|1wk|1mo)$"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
     """
     Get historical price data for an investment
+    Note: Alpha Vantage free tier has limited historical data access
     """
     investment = db.query(Investment).filter(
         Investment.id == investment_id,
@@ -438,56 +519,27 @@ def get_investment_history(
             detail="Inversión no encontrada"
         )
     
-    # Get historical data
-    if investment.investment_type == InvestmentType.CRYPTO:
-        symbol = f"{investment.symbol}-USD"
-    else:
-        symbol = investment.symbol
+    # For free tier, we'll return simplified data
+    # You could implement TIME_SERIES_DAILY from Alpha Vantage here if needed
+    current_quote = get_quote(investment.symbol)
     
-    history = MarketDataService.get_historical_data(symbol, period, interval)
-    
-    if not history:
+    if not current_quote:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="No se encontraron datos históricos para este símbolo"
+            detail="No se encontraron datos para este símbolo"
         )
     
+    # Return simplified current data
     return {
         'symbol': investment.symbol,
         'name': investment.name,
         'period': period,
-        'interval': interval,
-        'data': history
+        'current_data': {
+            'price': current_quote.get('price'),
+            'change': current_quote.get('change'),
+            'change_percent': current_quote.get('change_percent'),
+            'volume': current_quote.get('volume'),
+            'timestamp': current_quote.get('timestamp')
+        },
+        'message': 'Datos históricos completos disponibles con API key premium'
     }
-
-# Background task helper
-def update_single_investment_price(investment_id: int, symbol: str, investment_type: InvestmentType):
-    """Background task to update investment price"""
-    try:
-        from app.database import SessionLocal
-        db = SessionLocal()
-        investment = db.query(Investment).filter(Investment.id == investment_id).first()
-        
-        if investment:
-            if investment_type == InvestmentType.CRYPTO:
-                price_data = MarketDataService.get_crypto_price(symbol)
-            else:
-                price_data = MarketDataService.get_stock_price(symbol)
-            
-            if price_data:
-                investment.current_price = price_data['current_price']
-                investment.last_price_update = datetime.now()
-                
-                # Update metrics
-                investment.current_value = investment.quantity * investment.current_price
-                investment.profit_loss = investment.current_value - investment.total_invested
-                investment.profit_loss_percentage = (
-                    (investment.profit_loss / investment.total_invested) * 100
-                    if investment.total_invested > 0 else 0
-                )
-                
-                db.commit()
-        
-        db.close()
-    except Exception as e:
-        print(f"Error updating investment price: {e}")

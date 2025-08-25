@@ -35,6 +35,7 @@ class Expense(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    budget_id = Column(Integer, ForeignKey("budgets.id"), nullable=True)  # Relación opcional con presupuesto
     amount = Column(Float, nullable=False)
     category = Column(Enum(ExpenseCategory), nullable=False)
     subcategory = Column(String, nullable=True)  # Subcategoría personalizable
@@ -48,3 +49,4 @@ class Expense(Base):
     
     # Relationships
     user = relationship("User", back_populates="expenses")
+    budget = relationship("Budget", back_populates="expenses")

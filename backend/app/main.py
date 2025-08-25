@@ -2,17 +2,40 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import engine, Base
-from app.routers import auth, users, incomes, expenses, goals, investments, dashboard
+from app.routers import auth, users, incomes, expenses, goals, investments, dashboard, budgets
+from apscheduler.schedulers.background import BackgroundScheduler
+from app.services.recurrence_processor import run_daily_processing
 
-# Create all tables
-Base.metadata.create_all(bind=engine)
 
 # Create FastAPI app
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
+    docs_url="/docs",
+    redoc_url="/redoc",
     openapi_url=f"{settings.API_V1_STR}/openapi.json"
 )
+
+# Configurar scheduler
+scheduler = BackgroundScheduler()
+scheduler.add_job(
+    func=run_daily_processing,
+    trigger="cron",
+    hour=0,
+    minute=1,
+    id="process_recurring_transactions",
+    name="Process recurring transactions",
+    replace_existing=True
+)
+scheduler.start()
+
+# En el shutdown
+@app.on_event("shutdown")
+def shutdown_event():
+    scheduler.shutdown()
+
+# Create all tables
+Base.metadata.create_all(bind=engine)
 
 # Configure CORS
 app.add_middleware(
@@ -31,6 +54,7 @@ app.include_router(expenses.router, prefix=settings.API_V1_STR)
 app.include_router(goals.router, prefix=settings.API_V1_STR)
 app.include_router(investments.router, prefix=settings.API_V1_STR)
 app.include_router(dashboard.router, prefix=settings.API_V1_STR)
+app.include_router(budgets.router, prefix=settings.API_V1_STR)
 
 # Root endpoint
 @app.get("/")

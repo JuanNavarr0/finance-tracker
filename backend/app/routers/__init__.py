@@ -1,5 +1,5 @@
 # Import all routers
-from app.routers import auth, users, incomes, expenses, goals, investments, dashboard
+from . import auth, users, incomes, expenses, goals, investments, dashboard, budgets
 
 # This makes all routers available when importing from app.routers
 __all__ = [
@@ -9,5 +9,6 @@ __all__ = [
     "expenses",
     "goals",
     "investments",
-    "dashboard"
+    "dashboard",
+    "budgets"
 ]

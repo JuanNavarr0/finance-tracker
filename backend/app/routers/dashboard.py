@@ -21,7 +21,15 @@ from app.schemas.dashboard import (
     RecentTransaction
 )
 from app.utils.auth import get_current_active_user
-from app.utils.market_data import update_investment_prices, calculate_portfolio_metrics
+from app.services.market_data import (
+    get_current_price,
+    get_quote,
+    update_investment_prices,
+    calculate_portfolio_metrics
+)
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/dashboard",
@@ -32,7 +40,7 @@ router = APIRouter(
 def get_dashboard_data(
     year: Optional[int] = None,
     month: Optional[int] = None,
-    update_investment_prices: bool = Query(True, description="Update investment prices"),
+    update_prices: bool = Query(True, description="Update investment prices"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -187,7 +195,9 @@ def get_dashboard_data(
         Investment.status == InvestmentStatus.ACTIVE
     ).all()
     
-    if investments and update_investment_prices:
+    # Update prices using Alpha Vantage if requested
+    if investments and update_prices:
+        logger.info(f"Updating prices for {len(investments)} investments")
         investments = update_investment_prices(investments)
         db.commit()
     
@@ -213,7 +223,7 @@ def get_dashboard_data(
                     'profit_loss_percentage': round(best.profit_loss_percentage, 2)
                 }
             
-            if sorted_investments[-1].profit_loss_percentage < 0:
+            if len(sorted_investments) > 1 and sorted_investments[-1].profit_loss_percentage < 0:
                 worst = sorted_investments[-1]
                 worst_performer = {
                     'symbol': worst.symbol,
@@ -234,7 +244,9 @@ def get_dashboard_data(
             total_invested=0,
             current_value=0,
             total_return=0,
-            return_percentage=0
+            return_percentage=0,
+            best_performer=None,
+            worst_performer=None
         )
     
     # Recent Transactions
@@ -274,8 +286,8 @@ def get_dashboard_data(
     
     # Calculate additional metrics
     days_in_month = monthrange(year, month)[1]
-    days_passed = (datetime.now().date() - first_day).days + 1
-    days_remaining = days_in_month - days_passed
+    days_passed = min((datetime.now().date() - first_day).days + 1, days_in_month)
+    days_remaining = max(0, days_in_month - days_passed)
     
     # Average daily expense (based on current month)
     average_daily_expense = monthly_expense_total / days_passed if days_passed > 0 else 0
@@ -303,6 +315,7 @@ def get_dashboard_data(
                 "title": f"Alto gasto en {expense_cat.category}",
                 "message": f"Esta categoría representa el {expense_cat.percentage}% de tus gastos totales"
             })
+            break  # Only show one category alert
     
     # Check for upcoming goals
     upcoming_goals = db.query(Goal).filter(
@@ -311,7 +324,7 @@ def get_dashboard_data(
         Goal.target_date <= datetime.now() + timedelta(days=30)
     ).all()
     
-    for goal in upcoming_goals:
+    for goal in upcoming_goals[:1]:  # Only show first upcoming goal
         days_left = (goal.target_date - datetime.now()).days
         if days_left >= 0:
             progress = (goal.current_amount / goal.target_amount * 100) if goal.target_amount > 0 else 0
@@ -321,6 +334,7 @@ def get_dashboard_data(
                     "title": f"Objetivo próximo: {goal.name}",
                     "message": f"Faltan {days_left} días y has alcanzado el {round(progress, 1)}% de tu meta"
                 })
+                break
     
     # Investment alerts
     if investments_summary.return_percentage < -10:
@@ -336,6 +350,14 @@ def get_dashboard_data(
             "message": f"Tu portfolio ha ganado un {round(investments_summary.return_percentage, 1)}%"
         })
     
+    # Positive savings alert
+    if net_balance > 0 and savings_rate > 20:
+        alerts.append({
+            "type": "success",
+            "title": "¡Buen ahorro!",
+            "message": f"Has ahorrado el {round(savings_rate, 1)}% de tus ingresos totales"
+        })
+    
     # Limit alerts to 5 most important
     alerts = alerts[:5]
     
@@ -349,7 +371,7 @@ def get_dashboard_data(
         investments_summary=investments_summary,
         recent_transactions=recent_transactions,
         average_daily_expense=round(average_daily_expense, 2),
-        days_until_month_end=max(0, days_remaining),
+        days_until_month_end=days_remaining,
         projected_month_end_balance=round(projected_month_end_balance, 2),
         alerts=alerts
     )
@@ -383,7 +405,7 @@ def get_quick_stats(
         Goal.status == GoalStatus.ACTIVE
     ).scalar() or 0
     
-    # Investment value
+    # Investment value (with cached prices)
     investments = db.query(Investment).filter(
         Investment.user_id == current_user.id,
         Investment.status == InvestmentStatus.ACTIVE
